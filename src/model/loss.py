@@ -30,3 +30,14 @@ class L1Loss(nn.Module):
         loss = F.l1_loss(pred * mask, target * mask,
                          reduction='elementwise_mean')
         return loss
+
+
+class CarLoss(nn.Module):
+    def __init__(self):
+        super(CarLoss, self).__init__()
+
+        self.crit_offset = L1Loss()
+
+    def forward(self, logit, data):
+        loss_offset = self.crit_offset(logit['offset'], data['rot_mask'],
+                                       data['index'], data['offset'])

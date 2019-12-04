@@ -1,15 +1,13 @@
 import os
-import random
 
-import torch
+# import torch
 from torch.utils.data import Dataset
-from albumentations import ImageOnlyTransform
-import albumentations.pytorch as ATorch
-import albumentations as A
+# from albumentations import ImageOnlyTransform
+# import albumentations.pytorch as ATorch
+# import albumentations as A
 import numpy as np
-import pandas as pd
 import cv2
-import jpeg4py
+# import jpeg4py
 
 from .. import config
 from .cmp_util import str2coords, project
@@ -94,11 +92,11 @@ class CarDataset(Dataset):
         return self.df_selected.shape[0]
 
     def __getitem__(self, idx):
-        image_name = self._get_image_name(self.df_selected, idx)
+        image_path = self._get_image_name(self.df_selected, idx)
         try:
-            image = self._load_image(image_name)
+            image = self._load_image(image_path)
         except Exception as e:
-            raise ValueError('Could not load image: %s' % image_name) from e
+            raise ValueError('Could not load image: %s' % image_path) from e
 
         img_height, img_width = image.shape[0], image.shape[1]
         hm_height, hm_width = img_height // config.MODEL_SCALE, img_width // config.MODEL_SCALE
@@ -107,6 +105,7 @@ class CarDataset(Dataset):
         heatmap = np.zeros(
             (hm_height, hm_width), dtype=np.float32)
         offset = np.zeros((config.MAX_OBJ, 2), dtype=np.float32)
+        xyz = np.zeros((config.MAX_OBJ, 3), dtype=np.float32)
         rotate = np.zeros((config.MAX_OBJ, 4), dtype=np.float32)
         index = np.zeros((config.MAX_OBJ), dtype=np.uint8)
         rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
@@ -135,6 +134,7 @@ class CarDataset(Dataset):
 
             heatmap = draw_umich_gaussian(heatmap, center, radius)
             offset[k] = center - center_int
+            xyz[k] = np.array([valid_xs[k], valid_ys[k], valid_zs[k]])
             index[k] = center_int[1] * config.OUTPUT_WIDTH + center_int[0]
             rot_mask[k] = 1
 
@@ -142,9 +142,11 @@ class CarDataset(Dataset):
             'image': image,
             'heatmap': heatmap,
             'offset': offset,
+            'xyz': xyz,
             'rotate': rotate,
             'index': index,
             'rot_mask': rot_mask,
+            'ImageId': self._get_image_id(self.df_selected, idx)
         }
 
         return ret
@@ -182,6 +184,11 @@ class CarDataset(Dataset):
 #         augmented = self.transform(image=image)
 #         image = augmented['image']
         return image
+
+    def _get_image_id(self, df, idx):
+        rcd = df.iloc[idx]
+        image_id = rcd['ImageId']
+        return image_id
 
     def plot_2d(self, idx):
         image_name = self._get_image_name(self.df_selected, idx)
