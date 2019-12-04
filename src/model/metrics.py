@@ -75,76 +75,7 @@ thres_tr_list = [0.1, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01]
 thres_ro_list = [50, 45, 40, 35, 30, 25, 20, 15, 10, 5]
 
 
-def check_match(idx):
-    keep_gt = False
-    thre_tr_dist = thres_tr_list[idx]
-    thre_ro_dist = thres_ro_list[idx]
-    train_dict = {imgID: str2coords(s, names=['carid_or_score', 'pitch', 'yaw', 'roll', 'x', 'y', 'z'])
-                  for imgID, s in zip(train_df['ImageId'], train_df['PredictionString'])}
-    valid_dict = {imgID: str2coords(s, names=['pitch', 'yaw', 'roll', 'x', 'y', 'z', 'carid_or_score'])
-                  for imgID, s in zip(valid_df['ImageId'], valid_df['PredictionString'])}
-    result_flg = []  # 1 for TP, 0 for FP
-    scores = []
-    MAX_VAL = 10**10
-    for img_id in valid_dict:
-        for pcar in sorted(valid_dict[img_id], key=lambda x: -x['carid_or_score']):
-            # find nearest GT
-            min_tr_dist = MAX_VAL
-            min_idx = -1
-            for idx, gcar in enumerate(train_dict[img_id]):
-                tr_dist = TranslationDistance(pcar, gcar)
-                if tr_dist < min_tr_dist:
-                    min_tr_dist = tr_dist
-                    # It is better to calculate rotate distance
-                    # when idx according to the minimum of dist is determined.
-                    min_ro_dist = RotationDistance(pcar, gcar)
-                    min_idx = idx
-
-            # set the result
-            if min_tr_dist < thre_tr_dist and min_ro_dist < thre_ro_dist:
-                if not keep_gt:
-                    # if
-                    train_dict[img_id].pop(min_idx)
-                result_flg.append(1)
-            else:
-                result_flg.append(0)
-            scores.append(pcar['carid_or_score'])
-
-    return result_flg, scores
-
-
-def car_map(valid_predict):
-    valid_df = pd.read_csv(valid_predict)
-    valid_df = valid_df.fillna('')
-
-    train_df = pd.read_csv('../input/pku-autonomous-driving/train.csv')
-    train_df = train_df[train_df.ImageId.isin(valid_df.ImageId.unique())]
-    # data description page says, The pose information is formatted as
-    # model type, yaw, pitch, roll, x, y, z
-    # but it doesn't, and it should be
-    # model type, pitch, yaw, roll, x, y, z
-    expanded_train_df = expand_df(
-        train_df, ['model_type', 'pitch', 'yaw', 'roll', 'x', 'y', 'z'])
-
-    max_workers = 10
-    n_gt = len(expanded_train_df)
-    ap_list = []
-    p = Pool(processes=max_workers)
-    for result_flg, scores in p.imap(check_match, range(10)):
-        if np.sum(result_flg) > 0:
-            n_tp = np.sum(result_flg)
-            recall = n_tp / n_gt
-            ap = average_precision_score(result_flg, scores) * recall
-        else:
-            ap = 0
-        ap_list.append(ap)
-    map = np.mean(ap_list)
-    print('map:', map)
-
-    return map
-
-
-def check_match2(idx, gt_dict_org, pred_dict_org):
+def check_match(idx, gt_dict_org, pred_dict_org):
     keep_gt = False
     thre_tr_dist = thres_tr_list[idx]
     thre_ro_dist = thres_ro_list[idx]
@@ -183,26 +114,20 @@ def check_match2(idx, gt_dict_org, pred_dict_org):
 
 
 def check_match_wrapper(params):
-    check_match2(*params)
+    check_match(*params)
 
 
-def car_map2(valid_predict):
-    valid_df = pd.read_csv(valid_predict)
-    valid_df = valid_df.fillna('')
-
-    train_df = pd.read_csv('../input/pku-autonomous-driving/train.csv')
-    train_df = train_df[train_df.ImageId.isin(valid_df.ImageId.unique())]
-    # data description page says, The pose information is formatted as
-    # model type, yaw, pitch, roll, x, y, z
-    # but it doesn't, and it should be
-    # model type, pitch, yaw, roll, x, y, z
-    expanded_train_df = expand_df(
-        train_df, ['model_type', 'pitch', 'yaw', 'roll', 'x', 'y', 'z'])
-
-    gt_dict = {imgID: str2coords(s, names=['carid_or_score', 'pitch', 'yaw', 'roll', 'x', 'y', 'z'])
-               for imgID, s in zip(train_df['ImageId'], train_df['PredictionString'])}
-    pred_dict = {imgID: str2coords(s, names=['pitch', 'yaw', 'roll', 'x', 'y', 'z', 'carid_or_score'])
-                 for imgID, s in zip(valid_df['ImageId'], valid_df['PredictionString'])}
+def car_map(gt_dict, pred_dict):
+    """
+    Parameters
+    ----------
+    gt_dict: dict
+        the dict contains the following key-values.
+        ImageId: list of dict(carid_or_score, pitch, yaw, roll, x, y, z)
+    pred_dict: dict
+        the dict contains the following key-values.
+        ImageId: list of dict(pitch, yaw, roll, x, y, z, carid_or_score)
+    """
     # sort values of pred_dict for each image
     for img_id in pred_dict:
         pred_dict[img_id] = sorted(
@@ -210,6 +135,7 @@ def car_map2(valid_predict):
 
     arguments = [(i, gt_dict, pred_dict) for i in range(10)]
     max_workers = 10
+    # TODO: calculate n_gt from gt_dict
     n_gt = len(expanded_train_df)
     ap_list = []
     with Pool(processes=max_workers) as p:

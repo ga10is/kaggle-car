@@ -138,6 +138,7 @@ class CarDataset(Dataset):
             index[k] = center_int[1] * config.OUTPUT_WIDTH + center_int[0]
             rot_mask[k] = 1
 
+        # TODO: think return value for prediction
         ret = {
             'image': image,
             'heatmap': heatmap,
@@ -146,7 +147,8 @@ class CarDataset(Dataset):
             'rotate': rotate,
             'index': index,
             'rot_mask': rot_mask,
-            'ImageId': self._get_image_id(self.df_selected, idx)
+            'ImageId': self._get_image_id(self.df_selected, idx),
+            'gt': coord_list
         }
 
         return ret
