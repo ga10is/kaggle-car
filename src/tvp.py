@@ -10,9 +10,9 @@ def train_one_epoch(epoch, model, loader, criterion, optimizer):
 
     model.train()
     for i, data in enumerate(tqdm(loader)):
-        img = data['image'].to(device=config.DEVICE, dtype=torch.float)
+        img = data['image'].to(device=config.DEVICE)
         logit = model(img)
-        loss = criterion(logit, data)
+        loss, loss_stats = criterion(logit, data)
 
         optimizer.zero_grad()
         loss.backward()
@@ -28,7 +28,7 @@ def valid_one_epoch(epoch, model, loader, criterion):
     # validate phase
     model.eval()
     for i, data in enumerate(tqdm(loader)):
-        img = data['image'].to(config.DEVICE, dtype=torch.float)
+        img = data['image'].to(config.DEVICE)
         batch_size = data['image'].size(0)
         with torch.no_grad():
             logit = model(img)
@@ -39,8 +39,8 @@ def valid_one_epoch(epoch, model, loader, criterion):
             img_ids = data['ImageId']
             pred_batch_dict = dict(zip(img_ids, pred_batch_list))
             pred_dict.update(pred_batch_dict)
-            # TODO: update gt_dict
-    # TODO: gt_dict
+            gt_batch_dict = dict(zip(img_ids, data['gt']))
+            gt_dict.update(gt_batch_dict)
     map_val = car_map(gt_dict, pred_dict)
     return map_val
 
@@ -51,7 +51,7 @@ def predict_one_epoch(model, loader):
     # validate phase
     model.eval()
     for i, data in enumerate(tqdm(loader)):
-        img = data['image'].to(config.DEVICE, dtype=torch.float)
+        img = data['image'].to(config.DEVICE)
         with torch.no_grad():
             logit = model(img)
 

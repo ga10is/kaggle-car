@@ -1,6 +1,6 @@
 import os
 
-# import torch
+import torch
 from torch.utils.data import Dataset
 # from albumentations import ImageOnlyTransform
 # import albumentations.pytorch as ATorch
@@ -109,6 +109,10 @@ class CarDataset(Dataset):
         rotate = np.zeros((config.MAX_OBJ, 4), dtype=np.float32)
         index = np.zeros((config.MAX_OBJ), dtype=np.uint8)
         rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
+        reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
+
+        # augmentation
+        aug = False
 
         # set groud-truth data
         coord_str = self.df_selected.iloc[idx]['PredictionString']
@@ -137,6 +141,7 @@ class CarDataset(Dataset):
             xyz[k] = np.array([valid_xs[k], valid_ys[k], valid_zs[k]])
             index[k] = center_int[1] * config.OUTPUT_WIDTH + center_int[0]
             rot_mask[k] = 1
+            reg_mask[k] = 1 if not aug else 0
 
         # TODO: think return value for prediction
         ret = {
@@ -147,6 +152,7 @@ class CarDataset(Dataset):
             'rotate': rotate,
             'index': index,
             'rot_mask': rot_mask,
+            'reg_mask': reg_mask,
             'ImageId': self._get_image_id(self.df_selected, idx),
             'gt': coord_list
         }
@@ -206,3 +212,15 @@ class CarDataset(Dataset):
         plt.figure(figsize=(14, 14))
         plt.imshow(image)
         plt.scatter(x=img_xs, y=img_ys, color='red', s=100)
+
+
+def car_collate_fn(datasets):
+    ret = {}
+    for k in ['image', 'heatmap', 'offset', 'xyz', 'rotate', 'index', 'rot_mask', 'reg_mask']:
+        ret[k] = torch.stack([torch.Tensor(dataset[k])
+                              for dataset in datasets], dim=0)
+
+    ret['ImageId'] = [dataset['ImageId'] for dataset in datasets]
+    ret['gt'] = [dataset['gt'] for dataset in datasets]
+
+    return ret
