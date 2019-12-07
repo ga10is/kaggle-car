@@ -27,7 +27,9 @@ def fill_up_weights(up):
 class ResNet(nn.Module):
     def __init__(self):
         super(ResNet, self).__init__()
+        self.inplanes = 64
         self.heads = {'heatmap': 1, 'offset': 2, 'depth': 1, 'rotate': 4}
+        self.deconv_with_bias = False
 
         resnet = torchvision.models.resnet34(pretrained=True)
         self.conv1 = resnet.conv1
@@ -239,10 +241,22 @@ def decode_eval(output, k=40):
         # points_in_image: [{}, {}, ...]
         points_in_image = [dict(zip(label_list, pred_point))
                            for pred_point in pred_points]
+        points_in_image = clear_duplicates(points_in_image)
         pred_list.append(points_in_image)
-        # TODO: clear_duplicates
 
     return pred_list
+
+
+def clear_duplicates(points):
+    for c1 in points:
+        xyz1 = np.array([c1['x'], c1['y'], c1['z']])
+        for c2 in points:
+            xyz2 = np.array([c2['x'], c2['y'], c2['z']])
+            distance = np.sqrt(((xyz1 - xyz2)**2).sum())
+            if distance < config.DISTANCE_THRESH_CLEAR:
+                if c1['confidence'] < c2['confidence']:
+                    c1['confidence'] = -1
+    return [c for c in points if c['confidence'] > 0]
 
 
 def decode_train(heatmap, offset, depth, inds):
