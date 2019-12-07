@@ -3,8 +3,8 @@ import os
 import torch
 from torch.utils.data import Dataset
 # from albumentations import ImageOnlyTransform
-# import albumentations.pytorch as ATorch
-# import albumentations as A
+import albumentations.pytorch as ATorch
+import albumentations as A
 import numpy as np
 import cv2
 # import jpeg4py
@@ -72,12 +72,30 @@ def draw_umich_gaussian(heatmap, center, radius, k=1):
     return heatmap
 
 
+def get_train_transform():
+    transforms = [
+        A.Resize(*config.INPUT_SIZE),
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+        # ATorch.transforms.ToTensor()
+    ]
+    keypoint_params = A.KeypointParams(format='xys')
+    train_trans = A.Compose(transforms, keypoint_params=keypoint_params)
+    return train_trans
+
+
 class CarDataset(Dataset):
-    def __init__(self, df, image_dir, transform, mode):
+    def __init__(self, df, image_dir, mode):
         self.df_org = df.copy()
         self.image_dir = image_dir
-        self.transform = transform
         self.mode = mode
+
+        if mode == 'train':
+            self.transform = get_train_transform()
+        else:
+            raise NotImplementedError
 
         # Random Selection
         if mode == 'train':
@@ -92,25 +110,6 @@ class CarDataset(Dataset):
         return self.df_selected.shape[0]
 
     def __getitem__(self, idx):
-        image_path = self._get_image_name(self.df_selected, idx)
-        try:
-            image = self._load_image(image_path)
-        except Exception as e:
-            raise ValueError('Could not load image: %s' % image_path) from e
-
-        img_height, img_width = image.shape[0], image.shape[1]
-        hm_height, hm_width = img_height // config.MODEL_SCALE, img_width // config.MODEL_SCALE
-
-        # index: 1-dim index of the heatmap from top-left to right-bottom
-        heatmap = np.zeros(
-            (hm_height, hm_width), dtype=np.float32)
-        offset = np.zeros((config.MAX_OBJ, 2), dtype=np.float32)
-        xyz = np.zeros((config.MAX_OBJ, 3), dtype=np.float32)
-        rotate = np.zeros((config.MAX_OBJ, 4), dtype=np.float32)
-        index = np.zeros((config.MAX_OBJ), dtype=np.uint8)
-        rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
-        reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
-
         # augmentation
         aug = False
 
@@ -126,14 +125,37 @@ class CarDataset(Dataset):
                 valid_xs.append(img_x)
                 valid_ys.append(img_y)
                 valid_zs.append(img_z)
+        keypoints = list(zip(valid_xs, valid_ys, valid_zs))
+        print('after list(zip): %s' % str(keypoints))
 
-        num_objs = min(len(valid_xs), config.MAX_OBJ)
+        # load image
+        image_path = self._get_image_name(self.df_selected, idx)
+        try:
+            image, keypoints = \
+                self._load_image(image_path, keypoints=keypoints)
+        except Exception as e:
+            raise ValueError('Could not load image: %s' % image_path) from e
+
+        img_height, img_width = image.shape[0], image.shape[1]
+        hm_height, hm_width = img_height // config.MODEL_SCALE, img_width // config.MODEL_SCALE
+
+        # index: 1-dim index of the heatmap from top-left to right-bottom
+        heatmap = np.zeros(
+            (hm_height, hm_width), dtype=np.float32)
+        offset = np.zeros((config.MAX_OBJ, 2), dtype=np.float32)
+        xyz = np.zeros((config.MAX_OBJ, 3), dtype=np.float32)
+        rotate = np.zeros((config.MAX_OBJ, 4), dtype=np.float32)
+        index = np.zeros((config.MAX_OBJ), dtype=np.uint8)
+        rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
+        reg_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
+
+        num_objs = min(len(keypoints), config.MAX_OBJ)
         for k in range(num_objs):
             center = np.array(
-                [valid_xs[k] / config.MODEL_SCALE, valid_ys[k] / config.MODEL_SCALE], dtype=np.float32)
+                [keypoints[k][0] / config.MODEL_SCALE, keypoints[k][1] / config.MODEL_SCALE], dtype=np.float32)
             center_int = center.astype(np.int32)
             # z value 0 ~ 3500
-            radius = int(2000 / valid_zs[k] / config.MODEL_SCALE)
+            radius = int(1000 / valid_zs[k] / config.MODEL_SCALE)
             # radius = max(1, radius)
 
             heatmap = draw_umich_gaussian(heatmap, center, radius)
@@ -175,7 +197,7 @@ class CarDataset(Dataset):
         file_path = os.path.join(self.image_dir, file_name)
         return file_path
 
-    def _load_image(self, image_path):
+    def _load_image(self, image_path, keypoints):
         """
         Parameters
         ----------
@@ -189,9 +211,10 @@ class CarDataset(Dataset):
         if image is None:
             raise ValueError('Not found image: %s' % image_path)
 
-#         augmented = self.transform(image=image)
-#         image = augmented['image']
-        return image
+        augmented = self.transform(image=image, keypoints=keypoints)
+        image = augmented['image']
+        keypoints = augmented['keypoints']
+        return image, keypoints
 
     def _get_image_id(self, df, idx):
         rcd = df.iloc[idx]
