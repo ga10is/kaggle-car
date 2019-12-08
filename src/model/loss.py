@@ -106,7 +106,7 @@ class CarLoss(nn.Module):
         loss_stats = {
             'loss': loss,
             'loss_heatmap': loss_heatmap,
-            'loss_offset': loss_heatmap,
+            'loss_offset': loss_offset,
             'loss_depth': loss_depth,
         }
 

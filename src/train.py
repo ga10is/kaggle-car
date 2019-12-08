@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from . import config
 from .data.dataset import CarDataset, car_collate_fn, get_train_transform
 from .model.model import decode_eval, ResNet
-from .model.metrics import car_map
+from .model.metrics import car_map, AverageMeter
 from .model.loss import CarLoss
 
 
@@ -41,24 +41,40 @@ def init_model():
 
 
 def train_one_epoch(epoch, model, loader, criterion, optimizer):
+    loss_meters = {k: AverageMeter() for k in []}
 
     model.train()
     for i, data in enumerate(tqdm(loader)):
-        # img = data['image'].to(device=config.DEVICE)
+        batch_size = data['image'].size(0)
         to_gpu(data)
-        img = data['image']
 
-        logit = model(img)
+        logit = model(data['image'])
         loss, loss_stats = criterion(logit, data)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
+        for k in loss_stats:
+            loss_meters[k].update(loss_stats[k].item(), batch_size)
+
+        print_loss(i, loss_meters)
+
 
 def to_gpu(data):
     for k in ['image', 'heatmap', 'offset', 'xyz', 'rotate', 'index', 'rot_mask', 'reg_mask']:
         data[k] = data[k].to(config.DEVICE)
+
+# def update_meter()
+
+
+def print_loss(idx, loss_meters):
+    if (idx + 1) % config.PRINT_FREQ == 0:
+        print('loss %f heatmap %f offset %f depth %f'
+              % (loss_meters['loss'].avg,
+                 loss_meters['loss_heatmap'].avg,
+                 loss_meters['loss_offset'].avg,
+                 loss_meters['loss_depth'].avg))
 
 
 def valid_one_epoch(epoch, model, loader, criterion):
@@ -70,12 +86,10 @@ def valid_one_epoch(epoch, model, loader, criterion):
     # validate phase
     model.eval()
     for i, data in enumerate(tqdm(loader)):
-        # img = data['image'].to(config.DEVICE)
         to_gpu(data)
-        img = data['image']
         batch_size = data['image'].size(0)
         with torch.no_grad():
-            logit = model(img)
+            logit = model(data['image'])
             loss = criterion(logit, data)
             loss_meter.update(loss.item(), batch_size)
 
