@@ -3,7 +3,7 @@ import os
 import torch
 from torch.utils.data import Dataset
 # from albumentations import ImageOnlyTransform
-import albumentations.pytorch as ATorch
+# import albumentations.pytorch as ATorch
 import albumentations as A
 import numpy as np
 import cv2
@@ -79,7 +79,6 @@ def get_train_transform():
             mean=[0.485, 0.456, 0.406],
             std=[0.229, 0.224, 0.225],
         ),
-        # ATorch.transforms.ToTensor()
     ]
     keypoint_params = A.KeypointParams(format='xys')
     train_trans = A.Compose(transforms, keypoint_params=keypoint_params)
@@ -87,15 +86,11 @@ def get_train_transform():
 
 
 class CarDataset(Dataset):
-    def __init__(self, df, image_dir, mode):
+    def __init__(self, df, image_dir, mode, transform):
         self.df_org = df.copy()
         self.image_dir = image_dir
         self.mode = mode
-
-        if mode == 'train':
-            self.transform = get_train_transform()
-        else:
-            raise NotImplementedError
+        self.transform = transform
 
         # Random Selection
         if mode == 'train':
@@ -164,6 +159,9 @@ class CarDataset(Dataset):
             index[k] = center_int[1] * config.OUTPUT_WIDTH + center_int[0]
             rot_mask[k] = 1
             reg_mask[k] = 1 if not aug else 0
+
+        # change the shape of image (h, w, c) -> (c, h, w)
+        image = image.transpose(2, 0, 1)
 
         # TODO: think return value for prediction
         ret = {
@@ -240,7 +238,7 @@ class CarDataset(Dataset):
 def car_collate_fn(datasets):
     ret = {}
     for k in ['image', 'heatmap', 'offset', 'xyz', 'rotate', 'index', 'rot_mask', 'reg_mask']:
-        ret[k] = torch.stack([torch.Tensor(dataset[k])
+        ret[k] = torch.stack([torch.from_numpy(dataset[k])
                               for dataset in datasets], dim=0)
 
     ret['ImageId'] = [dataset['ImageId'] for dataset in datasets]
