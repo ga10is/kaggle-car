@@ -8,6 +8,7 @@ import albumentations as A
 import numpy as np
 import cv2
 # import jpeg4py
+from scipy.spatial.transform import Rotation as R
 
 from .. import config
 from .cmp_util import str2coords, project
@@ -105,10 +106,26 @@ class CarDataset(Dataset):
         return self.df_selected.shape[0]
 
     def __getitem__(self, idx):
+        """
+        Returns
+        -------
+        dict which contains the following key-values
+        - image: shape of 
+        - heatmap: shape of 
+        - offset: shape of 
+        - xyz: shape of 
+        - rotate: shape of 
+        - index: shape of
+        - rot_mask: shape of
+        - reg_mask: shape of 
+        - ImageId: list of str
+        - gt: list of dict
+        """
         # augmentation
         aug = False
 
         # set groud-truth data
+        # coord_list: [{x: y: z: pitch: yaw: roll:}, {}, ...]
         coord_str = self.df_selected.iloc[idx]['PredictionString']
         coord_list = str2coords(coord_str)
         img_xs, img_ys, img_zs = project(coord_list)
@@ -121,7 +138,6 @@ class CarDataset(Dataset):
                 valid_ys.append(img_y)
                 valid_zs.append(img_z)
         keypoints = list(zip(valid_xs, valid_ys, valid_zs))
-        print('after list(zip): %s' % str(keypoints))
 
         # load image
         image_path = self._get_image_name(self.df_selected, idx)
@@ -134,6 +150,7 @@ class CarDataset(Dataset):
         img_height, img_width = image.shape[0], image.shape[1]
         hm_height, hm_width = img_height // config.MODEL_SCALE, img_width // config.MODEL_SCALE
 
+        # initialize return values
         # index: 1-dim index of the heatmap from top-left to right-bottom
         heatmap = np.zeros(
             (hm_height, hm_width), dtype=np.float32)
@@ -144,6 +161,12 @@ class CarDataset(Dataset):
         rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
         reg_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
 
+        # transform euler angle to quaternion, shape(k, 4)
+        rotate_euler = np.array(
+            [[p['pitch'], p['yaw'], p['roll']] for p in coord_list])
+        quaternion = R.from_euler('xyz', rotate_euler, degrees=False).as_quat()
+
+        # set return values
         num_objs = min(len(keypoints), config.MAX_OBJ)
         for k in range(num_objs):
             center = np.array(
@@ -156,6 +179,7 @@ class CarDataset(Dataset):
             heatmap = draw_umich_gaussian(heatmap, center, radius)
             offset[k] = center - center_int
             xyz[k] = np.array([valid_xs[k], valid_ys[k], valid_zs[k]])
+            rotate[k] = quaternion[k]
             index[k] = center_int[1] * config.OUTPUT_WIDTH + center_int[0]
             rot_mask[k] = 1
             reg_mask[k] = 1 if not aug else 0

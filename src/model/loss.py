@@ -85,6 +85,7 @@ class CarLoss(nn.Module):
         super(CarLoss, self).__init__()
         self.crit_heatmap = FocalLoss()
         self.crit_reg = L1Loss()
+        self.crit_rot = L1Loss()
 
     def forward(self, output, data):
         # heatmap loss
@@ -97,17 +98,21 @@ class CarLoss(nn.Module):
         depth = 1. / (output['depth'].sigmoid() + 1e-6) - 1
         loss_depth = self.crit_reg(
             depth, data['reg_mask'].long(), data['index'].long(), data['xyz'][:, :, 2:3])
-        loss_offset = self.crit_reg(output['offset'], data['rot_mask'].long(),
-                                    data['index'].long(), data['offset'])
+        loss_offset = self.crit_reg(
+            output['offset'], data['rot_mask'].long(), data['index'].long(), data['offset'])
+        loss_rotate = self.crit_rot(
+            output['rotate'], data['rot_mask'].long(), data['index'].long(), data['rotate'])
 
         loss = config.HM_WEIGHT * loss_heatmap \
             + config.OFFSET_WEIGHT * loss_offset \
-            + config.DEPTH_WEIGHT * loss_depth
+            + config.DEPTH_WEIGHT * loss_depth \
+            + config.ROTATE_WEIGHT * loss_rotate
         loss_stats = {
             'loss': loss,
             'loss_heatmap': loss_heatmap,
             'loss_offset': loss_offset,
             'loss_depth': loss_depth,
+            'loss_rotate': loss_rotate,
         }
 
         return loss, loss_stats
