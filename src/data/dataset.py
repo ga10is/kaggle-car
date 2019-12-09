@@ -133,7 +133,8 @@ class CarDataset(Dataset):
         # remove point in out of image range
         valid_xs, valid_ys, valid_zs = [], [], []
         for img_x, img_y, img_z in zip(img_xs, img_ys, img_zs):
-            if img_x > 0 and img_y > 0:
+            if img_x > 0 and img_x <= config.IMG_SIZE[1] \
+                    and img_y > 0 and img_y <= config.IMG_SIZE[0]:
                 valid_xs.append(img_x)
                 valid_ys.append(img_y)
                 valid_zs.append(img_z)
@@ -155,7 +156,7 @@ class CarDataset(Dataset):
         heatmap = np.zeros(
             (hm_height, hm_width), dtype=np.float32)
         offset = np.zeros((config.MAX_OBJ, 2), dtype=np.float32)
-        xyz = np.zeros((config.MAX_OBJ, 3), dtype=np.float32)
+        depth = np.zeros((config.MAX_OBJ, 1), dtype=np.float32)
         rotate = np.zeros((config.MAX_OBJ, 4), dtype=np.float32)
         index = np.zeros((config.MAX_OBJ), dtype=np.uint8)
         rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
@@ -178,7 +179,7 @@ class CarDataset(Dataset):
 
             heatmap = draw_umich_gaussian(heatmap, center, radius)
             offset[k] = center - center_int
-            xyz[k] = np.array([valid_xs[k], valid_ys[k], valid_zs[k]])
+            depth[k] = np.array([valid_zs[k]])
             rotate[k] = quaternion[k]
             index[k] = center_int[1] * config.OUTPUT_WIDTH + center_int[0]
             rot_mask[k] = 1
@@ -192,7 +193,7 @@ class CarDataset(Dataset):
             'image': image,
             'heatmap': heatmap,
             'offset': offset,
-            'xyz': xyz,
+            'depth': depth,
             'rotate': rotate,
             'index': index,
             'rot_mask': rot_mask,

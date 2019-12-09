@@ -88,6 +88,9 @@ class CarLoss(nn.Module):
         self.crit_rot = L1Loss()
 
     def forward(self, output, data):
+        """
+        Parameters
+        """
         # heatmap loss
         heatmap = _sigmoid(output['heatmap'])
         num_stacks = 1
@@ -97,7 +100,7 @@ class CarLoss(nn.Module):
         # depth > 0
         depth = 1. / (output['depth'].sigmoid() + 1e-6) - 1
         loss_depth = self.crit_reg(
-            depth, data['reg_mask'].long(), data['index'].long(), data['xyz'][:, :, 2:3])
+            depth, data['reg_mask'].long(), data['index'].long(), data['depth'][:, :, 0:1])
         loss_offset = self.crit_reg(
             output['offset'], data['rot_mask'].long(), data['index'].long(), data['offset'])
         loss_rotate = self.crit_rot(

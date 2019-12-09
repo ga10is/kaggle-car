@@ -22,6 +22,7 @@ PRINT_FREQ = 10
 # aspect ratio(approx): 4: 5
 IMG_SIZE = (2710, 3384)
 INPUT_SIZE = (256 * 4, 256 * 5)
+SCALE = IMG_SIZE[1] / INPUT_SIZE[1]
 
 # object detection
 MAX_OBJ = 50

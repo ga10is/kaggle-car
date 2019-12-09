@@ -11,6 +11,7 @@ from .model.loss import CarLoss
 
 
 def train():
+    # ID_1a5a10365.jpg, ID_4d238ae90.jpg, ID_408f58e9f.jpg, ID_bb1d991f6.jpg, ID_c44983aeb.jpg
     df_train = pd.read_csv(config.TRAIN_CSV)
 
     train_dataset = CarDataset(
@@ -29,6 +30,8 @@ def train():
     for epoch in range(start_epoch + 1, config.EPOCHS + 1):
         train_one_epoch(epoch, model, train_loader, criterion, optimizer)
 
+        valid_one_epoch(epoch, model, train_loader, criterion)
+
 
 def init_model():
     model = ResNet().to(config.DEVICE)
@@ -41,7 +44,8 @@ def init_model():
 
 
 def train_one_epoch(epoch, model, loader, criterion, optimizer):
-    loss_meters = {k: AverageMeter() for k in []}
+    loss_meters = {k: AverageMeter()
+                   for k in ['loss', 'loss_heatmap', 'loss_offset', 'loss_depth', 'loss_rotate']}
 
     model.train()
     for i, data in enumerate(tqdm(loader)):
@@ -62,7 +66,7 @@ def train_one_epoch(epoch, model, loader, criterion, optimizer):
 
 
 def to_gpu(data):
-    for k in ['image', 'heatmap', 'offset', 'xyz', 'rotate', 'index', 'rot_mask', 'reg_mask']:
+    for k in ['image', 'heatmap', 'offset', 'depth', 'rotate', 'index', 'rot_mask', 'reg_mask']:
         data[k] = data[k].to(config.DEVICE)
 
 # def update_meter()
@@ -70,11 +74,12 @@ def to_gpu(data):
 
 def print_loss(idx, loss_meters):
     if (idx + 1) % config.PRINT_FREQ == 0:
-        print('loss %f heatmap %f offset %f depth %f'
+        print('loss %f heatmap %f offset %f depth %f rotate %f'
               % (loss_meters['loss'].avg,
                  loss_meters['loss_heatmap'].avg,
                  loss_meters['loss_offset'].avg,
-                 loss_meters['loss_depth'].avg))
+                 loss_meters['loss_depth'].avg),
+              loss_meters['loss_rotate'].avg)
 
 
 def valid_one_epoch(epoch, model, loader, criterion):
@@ -100,4 +105,6 @@ def valid_one_epoch(epoch, model, loader, criterion):
             gt_batch_dict = dict(zip(img_ids, data['gt']))
             gt_dict.update(gt_batch_dict)
     map_val = car_map(gt_dict, pred_dict)
+
+    print('mAP: %f' % (map_val, ))
     return map_val
