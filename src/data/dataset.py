@@ -113,7 +113,7 @@ class CarDataset(Dataset):
         - image: shape of 
         - heatmap: shape of 
         - offset: shape of 
-        - xyz: shape of 
+        - depth: shape of 
         - rotate: shape of 
         - index: shape of
         - rot_mask: shape of
@@ -262,7 +262,7 @@ class CarDataset(Dataset):
 
 def car_collate_fn(datasets):
     ret = {}
-    for k in ['image', 'heatmap', 'offset', 'xyz', 'rotate', 'index', 'rot_mask', 'reg_mask']:
+    for k in ['image', 'heatmap', 'offset', 'depth', 'rotate', 'index', 'rot_mask', 'reg_mask']:
         ret[k] = torch.stack([torch.from_numpy(dataset[k])
                               for dataset in datasets], dim=0)
 

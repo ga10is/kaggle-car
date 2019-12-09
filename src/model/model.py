@@ -210,10 +210,11 @@ def decode_eval(output, k=40):
     offset = _transpose_and_gather_feat(offset, inds)
     offset = offset.view(batch_size, k, 2)
     # 2d-coordinate
+    # (256*4, 256*5) --SCALE-> (2710, 3384)  SCALE = 2.64375
     xs = xs.view(batch_size, k, 1) + offset[:, :, 0:1]
     ys = ys.view(batch_size, k, 1) + offset[:, :, 1:2]
-    xs = xs * config.MODEL_SCALE
-    ys = ys * config.MODEL_SCALE
+    xs = xs * config.MODEL_SCALE * config.SCALE
+    ys = ys * config.MODEL_SCALE * config.SCALE
     # 3d-coordinate
     zs_world = _transpose_and_gather_feat(depth, inds)\
         .view(batch_size, k, 1)
@@ -234,7 +235,7 @@ def decode_eval(output, k=40):
     # shape(batch_size, k, 4) -> (batch_size * k, 4)
     quaternion = quaternion.view(-1, 4).detach().cpu().numpy()
     rotate = R.from_quat(quaternion).as_euler('xyz', degrees=False)
-    rotate = rotate.reshape(batch_size, k, 4)
+    rotate = rotate.reshape(batch_size, k, 3)
 
     # concatenate pitch, yaw, roll, x, y, z, confidence
     # shape of output is (batch_size, k, 7)
