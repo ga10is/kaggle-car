@@ -3,10 +3,11 @@ import torch.nn as nn
 import torchvision
 import torch
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 from .. import config
 from .dcn.dcn_v2 import DCN
-from .loss import _gather_feat, _transpose_and_gather_feat
+from .loss import _gather_feat, _transpose_and_gather_feat, _sigmoid
 from ..data.cmp_util import CAMERA
 
 BN_MOMENTUM = 0.1
@@ -27,7 +28,7 @@ def fill_up_weights(up):
 class ResNet(nn.Module):
     def __init__(self):
         super(ResNet, self).__init__()
-        self.inplanes = 64
+        self.inplanes = 512
         self.heads = {'heatmap': 1, 'offset': 2, 'depth': 1, 'rotate': 4}
         self.deconv_with_bias = False
 
@@ -199,14 +200,10 @@ def decode_eval(output, k=40):
     heatmap = output['heatmap']
     offset = output['offset']
     depth = output['depth']
+    quaternion = output['rotate']
 
     batch_size, _, height, width = heatmap.size()
     heatmap = _nms(heatmap)
-
-    # TODO: calculate pitch, yaw, roll
-    pitch = None
-    yaw = None
-    roll = None
 
     # TODO: compare topk and filtering by threshold
     scores, inds, classes, ys, xs = _topk(heatmap, K=k)
@@ -223,15 +220,25 @@ def decode_eval(output, k=40):
     xs_world = (xs - CAMERA[0, 2]) * zs_world / CAMERA[0, 0]
     ys_world = (ys - CAMERA[1, 2]) * zs_world / CAMERA[1, 1]
 
-    # TODO: calculate confidence
-    confs = None
+    # calculate confidence, shape(batch_size, k) -> (batch_size, k, 1)
+    print('scores shape: %s' % (scores.size(),))
+    confs = _sigmoid(scores).view(batch_size, k, 1)
 
-    # TODO: translate torch.Tensor to numpy.ndarray
+    # translate torch.Tensor to numpy.ndarray
+    xyz_conf = torch.cat([xs_world, ys_world, zs_world, confs], dim=2)\
+        .detach().cpu().numpy()
+
+    # transform quaternion to euler angle
+    # xyz = pitch yaw roll
+    quaternion = _transpose_and_gather_feat(quaternion, inds)
+    # shape(batch_size, k, 4) -> (batch_size * k, 4)
+    quaternion = quaternion.view(-1, 4).detach().cpu().numpy()
+    rotate = R.from_quat(quaternion).as_euler('xyz', degrees=False)
+    rotate = rotate.reshape(batch_size, k, 4)
 
     # concatenate pitch, yaw, roll, x, y, z, confidence
     # shape of output is (batch_size, k, 7)
-    preds = np.concatenate([pitch, yaw, roll, xs_world,
-                            ys_world, zs_world, confs], axis=2)
+    preds = np.concatenate([rotate, xyz_conf], axis=2)
 
     # transform ndarray to list of list of dict
     label_list = ['pitch', 'yaw', 'roll', 'x', 'y', 'z', 'confidence']
