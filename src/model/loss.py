@@ -64,8 +64,8 @@ class L1Loss(nn.Module):
     def forward(self, output, mask, ind, target):
         pred = _transpose_and_gather_feat(output, ind)
         mask = mask.unsqueeze(2).expand_as(pred).float()
-        loss = F.l1_loss(pred * mask, target * mask,
-                         reduction='elementwise_mean')
+        loss = F.l1_loss(pred * mask, target * mask, reduction='mean')
+
         return loss
 
 
@@ -87,24 +87,27 @@ class CarLoss(nn.Module):
         self.crit_reg = L1Loss()
         self.crit_rot = L1Loss()
 
-    def forward(self, output, data):
+    def forward(self, outputs, data):
         """
         Parameters
         """
-        # heatmap loss
-        heatmap = _sigmoid(output['heatmap'])
-        num_stacks = 1
-        loss_heatmap = self.crit_heatmap(heatmap, data['heatmap']) / num_stacks
+        loss_heatmap, loss_depth, loss_offset, loss_rotate = 0, 0, 0, 0
+        num_stacks = len(outputs)
+        for output in outputs:
+            # heatmap loss
+            heatmap = _sigmoid(output['heatmap'])
+            loss_heatmap += \
+                self.crit_heatmap(heatmap, data['heatmap']) / num_stacks
 
-        # depth loss
-        # depth > 0
-        depth = 1. / (output['depth'].sigmoid() + 1e-6) - 1
-        loss_depth = self.crit_reg(
-            depth, data['reg_mask'].long(), data['index'].long(), data['depth'][:, :, 0:1])
-        loss_offset = self.crit_reg(
-            output['offset'], data['rot_mask'].long(), data['index'].long(), data['offset'])
-        loss_rotate = self.crit_rot(
-            output['rotate'], data['rot_mask'].long(), data['index'].long(), data['rotate'])
+            # depth loss
+            # depth > 0
+            depth = 1. / (output['depth'].sigmoid() + 1e-6) - 1
+            loss_depth += self.crit_reg(
+                depth, data['reg_mask'].long(), data['index'].long(), data['depth'][:, :, 0:1])
+            loss_offset += self.crit_reg(
+                output['offset'], data['rot_mask'].long(), data['index'].long(), data['offset'])
+            loss_rotate += self.crit_rot(
+                output['rotate'], data['rot_mask'].long(), data['index'].long(), data['rotate'])
 
         loss = config.HM_WEIGHT * loss_heatmap \
             + config.OFFSET_WEIGHT * loss_offset \
