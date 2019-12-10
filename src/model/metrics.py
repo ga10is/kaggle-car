@@ -127,13 +127,13 @@ def check_match(idx, gt_dict_org, pred_dict_org):
                 result_flg.append(1)
             else:
                 result_flg.append(0)
-            scores.append(pcar['carid_or_score'])
+            scores.append(pcar['confidence'])
 
     return result_flg, scores
 
 
 def check_match_wrapper(params):
-    check_match(*params)
+    return check_match(*params)
 
 
 def car_map(gt_dict, pred_dict):
@@ -142,20 +142,19 @@ def car_map(gt_dict, pred_dict):
     ----------
     gt_dict: dict
         the dict contains the following key-values.
-        ImageId: list of dict(carid_or_score, pitch, yaw, roll, x, y, z)
+        ImageId: list of dict(id, pitch, yaw, roll, x, y, z)
     pred_dict: dict
         the dict contains the following key-values.
-        ImageId: list of dict(pitch, yaw, roll, x, y, z, carid_or_score)
+        ImageId: list of dict(pitch, yaw, roll, x, y, z, confidence)
     """
     # sort values of pred_dict for each image
     for img_id in pred_dict:
         pred_dict[img_id] = sorted(
-            pred_dict[img_id], key=lambda x: -x['carid_or_score'])
+            pred_dict[img_id], key=lambda x: -x['confidence'])
 
     arguments = [(i, gt_dict, pred_dict) for i in range(10)]
     max_workers = 10
-    # TODO: calculate n_gt from gt_dict
-    n_gt = len(expanded_train_df)
+    n_gt = sum([len(v) for v in gt_dict.values()])
     ap_list = []
     with Pool(processes=max_workers) as p:
         for result_flg, scores in p.imap(check_match_wrapper, arguments):
@@ -167,6 +166,5 @@ def car_map(gt_dict, pred_dict):
                 ap = 0
             ap_list.append(ap)
         map = np.mean(ap_list)
-        print('map:', map)
 
     return map
