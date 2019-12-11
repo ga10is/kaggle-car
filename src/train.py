@@ -1,4 +1,5 @@
 from tqdm import tqdm
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -8,7 +9,7 @@ from . import config
 from .data.dataset import CarDataset, car_collate_fn, get_train_transform
 from .model.model import decode_eval, ResNet
 from .model.metrics import car_map, AverageMeter
-from .model.loss import CarLoss
+from .model.loss import CarLoss, _sigmoid
 
 
 def train():
@@ -67,18 +68,21 @@ def train_one_epoch(epoch, model, loader, criterion, optimizer):
     for i, data in enumerate(tqdm(loader)):
         batch_size = data['image'].size(0)
         to_gpu(data)
+        with torch.set_grad_enabled(True):
+            logits = model(data['image'])
+            loss, loss_stats = criterion(logits, data)
 
-        logit = model(data['image'])
-        loss, loss_stats = criterion(logit, data)
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
         for k in loss_stats:
             loss_meters[k].update(loss_stats[k].item(), batch_size)
 
         print_loss(i, loss_meters)
+        if (i + 1) % 10 == 0:
+            # use last output
+            show_heatmap(data, logits[-1])
 
 
 def to_gpu(data):
@@ -98,6 +102,30 @@ def print_loss(idx, loss_meters):
               loss_meters['loss_rotate'].avg)
 
 
+def show_heatmap(data, output):
+    img = data['image'][0].detach().cpu().numpy()
+    # transpose (c, h, w) -> (h, w, c)
+    img = img.transpose(1, 2, 0)
+    # unnormalize
+    std = np.array([0.229, 0.224, 0.225]).reshape(1, 1, 3)
+    mean = np.array([0.485, 0.456, 0.406]).reshape(1, 1, 3)
+    img = img * std + mean
+
+    heatmap = output['heatmap'][0].detach()
+    heatmap = _sigmoid(heatmap).cpu().numpy()
+    # transform (c, h, w) -> (h, w)
+    heatmap = heatmap[0, :, :]
+
+    gt_heatmap = data['heatmap'][0].detach()
+    gt_heatmap = gt_heatmap.cpu().numpy()
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 15))
+    axes[0].imshow(img)
+    axes[1].imshow(heatmap)
+    axes[2].imshow(gt_heatmap)
+    plt.show()
+
+
 def valid_one_epoch(epoch, model, loader, criterion):
     loss_meter = AverageMeter()
 
@@ -110,16 +138,17 @@ def valid_one_epoch(epoch, model, loader, criterion):
         to_gpu(data)
         batch_size = data['image'].size(0)
         with torch.no_grad():
-            logit = model(data['image'])
-            # loss = criterion(logit, data)
+            logits = model(data['image'])
+            # loss = criterion(logits, data)
             # loss_meter.update(loss.item(), batch_size)
 
-            pred_batch_list = decode_eval(logit, k=config.MAX_OBJ)
-            img_ids = data['ImageId']
-            pred_batch_dict = dict(zip(img_ids, pred_batch_list))
-            pred_dict.update(pred_batch_dict)
-            gt_batch_dict = dict(zip(img_ids, data['gt']))
-            gt_dict.update(gt_batch_dict)
+        # use last output
+        pred_batch_list = decode_eval(logits[-1], k=config.MAX_OBJ)
+        img_ids = data['ImageId']
+        pred_batch_dict = dict(zip(img_ids, pred_batch_list))
+        pred_dict.update(pred_batch_dict)
+        gt_batch_dict = dict(zip(img_ids, data['gt']))
+        gt_dict.update(gt_batch_dict)
     map_val = car_map(gt_dict, pred_dict)
 
     print('mAP: %f' % (map_val, ))
