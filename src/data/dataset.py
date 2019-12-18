@@ -145,6 +145,7 @@ class CarDataset(Dataset):
         try:
             image, keypoints = \
                 self._load_image(image_path, keypoints=keypoints)
+            # TODO: mask image
         except Exception as e:
             raise ValueError('Could not load image: %s' % image_path) from e
 
@@ -158,7 +159,7 @@ class CarDataset(Dataset):
         offset = np.zeros((config.MAX_OBJ, 2), dtype=np.float32)
         depth = np.zeros((config.MAX_OBJ, 1), dtype=np.float32)
         rotate = np.zeros((config.MAX_OBJ, 4), dtype=np.float32)
-        index = np.zeros((config.MAX_OBJ), dtype=np.uint8)
+        index = np.zeros((config.MAX_OBJ), dtype=np.int64)
         rot_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
         reg_mask = np.zeros((config.MAX_OBJ), dtype=np.uint8)
 
