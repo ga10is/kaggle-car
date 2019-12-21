@@ -5,7 +5,7 @@ import os
 DEVICE = torch.device("cuda:0")
 
 # paths
-INPUT = '/kaggle/input/pku-autonomous-driving'
+INPUT = '/root/user/car-disk'
 TRAIN_CSV = os.path.join(INPUT, 'train.csv')
 TRAIN_IMAGE = os.path.join(INPUT, 'train_images')
 TRAIN_MASK = os.path.join(INPUT, 'train_masks')
@@ -17,11 +17,12 @@ EPOCHS = 2
 BATCH_SIZE = 4
 NUM_WORKERS = 8
 PRINT_FREQ = 10
+ACC_ITER = 8
 
 # image
 # aspect ratio(approx): 4: 5
 IMG_SIZE = (2710, 3384)
-INPUT_SIZE = (256 * 4, 256 * 5)
+INPUT_SIZE = (128 * 4, 128 * 5)
 SCALE = IMG_SIZE[1] / INPUT_SIZE[1]
 
 # object detection
@@ -33,7 +34,6 @@ OUTPUT_HEIGHT = INPUT_SIZE[0] // MODEL_SCALE
 # loss weights
 HM_WEIGHT = 1
 OFFSET_WEIGHT = 1
-QUART_WEIGHT = 1
 DEPTH_WEIGHT = 1
 ROTATE_WEIGHT = 1
 

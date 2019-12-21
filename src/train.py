@@ -3,15 +3,18 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import torch
+import cv2
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-from apex import amp
+# from apex import amp
 
 from . import config
+from .common.util import str_stats
 from .data.dataset import CarDataset, car_collate_fn, get_train_transform
-from .model.model import decode_eval, ResNet, _nms
+from .model.model import decode_eval, _nms
 from .model.metrics import car_map, AverageMeter
 from .model.loss import CarLoss, _sigmoid
+from .model.hourglass import get_large_hourglass_net
 
 
 def train():
@@ -53,7 +56,7 @@ def train():
 
 
 def init_model():
-    model = ResNet().to(config.DEVICE)
+    model = get_large_hourglass_net().to(config.DEVICE)
     criterion = CarLoss()
     optimizer = torch.optim.Adam(
         [{'params': model.parameters()}], lr=config.ADAM_LR)
@@ -65,7 +68,7 @@ def init_model():
 
 def train_one_epoch(epoch, model, loader, criterion, optimizer):
     loss_meters = {k: AverageMeter()
-                   for k in ['loss', 'loss_heatmap', 'loss_offset', 'loss_depth', 'loss_rotate']}
+                   for k in ['loss', 'loss_heatmap', 'loss_heatmap_reg', 'loss_offset', 'loss_depth', 'loss_rotate']}
 
     model.train()
     for i, data in enumerate(tqdm(loader)):
@@ -101,22 +104,23 @@ def to_gpu(data):
 
 def print_loss(idx, loss_meters):
     if (idx + 1) % config.PRINT_FREQ == 0:
-        print('loss %f heatmap %f offset %f depth %f rotate %f'
+        print('loss %f heatmap %f heatmap(l1) %f offset %f depth %f rotate %f'
               % (loss_meters['loss'].avg,
                  loss_meters['loss_heatmap'].avg,
+                 loss_meters['loss_heatmap_reg'].avg,
                  loss_meters['loss_offset'].avg,
-                 loss_meters['loss_depth'].avg),
-              loss_meters['loss_rotate'].avg)
+                 loss_meters['loss_depth'].avg,
+                 loss_meters['loss_rotate'].avg)
+              )
 
 
 def print_decode(data, output):
-    gt = data['gt'][0]
+    # gt = data['gt'][0]
     depth = data['depth'][0].detach().cpu().numpy()
     decode_output = decode_eval(output, k=10)[0]
-    pprint.pprint(gt)
-    print('depth')
-    print(depth)
+
     pprint.pprint(decode_output)
+    print(str_stats(depth.reshape(-1)))
 
 
 def show_heatmap(data, output):
@@ -128,15 +132,25 @@ def show_heatmap(data, output):
     mean = np.array([0.485, 0.456, 0.406]).reshape(1, 1, 3)
     img = img * std + mean
 
-    heatmaps = output['heatmap'].detach()
-    heatmap = _sigmoid(heatmaps[0]).cpu().numpy()
-    nms_heatmap = _nms(heatmaps)[0].cpu().numpy()
+    heatmaps = output['heatmap'].detach().cpu()
+    print('logit heatmap', str_stats(heatmaps.view(-1).numpy()))
+    heatmaps = _sigmoid(heatmaps)
+    print('sigmoid heatmap', str_stats(heatmaps.view(-1).numpy()))
+    heatmap = heatmaps[0].numpy()
     # transform (c, h, w) -> (h, w)
     heatmap = heatmap[0, :, :]
-    nms_heatmap = nms_heatmap[0, :, :]
 
-    heatmap = cv2.applyColorMap(np.uint8(255*heatmap), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(cam, cv2.COLOR_BGR2RGB)
+    # min-max normalization
+    hm_max = heatmap.max()
+    hm_min = heatmap.min()
+    heatmap = (heatmap - hm_min) / (hm_max - hm_min)
+    heatmap = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+
+    # depth
+    depth = output['depth'][0].detach().cpu()
+    depth = 1. / (depth.sigmoid() + 1e-6) - 1
+    depth = depth.numpy()[0, :, :]
 
     gt_heatmap = data['heatmap'][0].detach()
     gt_heatmap = gt_heatmap.cpu().numpy()
@@ -145,7 +159,7 @@ def show_heatmap(data, output):
     axes[0, 0].imshow(img)
     axes[0, 1].imshow(gt_heatmap)
     axes[1, 0].imshow(heatmap)
-    axes[1, 1].imshow(nms_heatmap)
+    axes[1, 1].imshow(depth)
     plt.show()
 
 
@@ -162,7 +176,7 @@ def valid_one_epoch(epoch, model, loader, criterion):
         batch_size = data['image'].size(0)
         with torch.no_grad():
             logits = model(data['image'])
-            # loss = criterion(logits, data)
+            # loss = criterion(logit, data)
             # loss_meter.update(loss.item(), batch_size)
 
         # last output of Hourglass is used

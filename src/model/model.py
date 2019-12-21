@@ -6,7 +6,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 from .. import config
-from .dcn.dcn_v2 import DCN
+# from .dcn.dcn_v2 import DCN
 from .loss import _gather_feat, _transpose_and_gather_feat, _sigmoid
 from ..data.cmp_util import CAMERA
 
@@ -197,13 +197,13 @@ def decode_eval(output, k=40):
         z:
         confidence:
     """
-    heatmap = output['heatmap']
-    offset = output['offset']
-    depth = output['depth']
-    quaternion = output['rotate']
+    heatmap = output['heatmap'].detach()
+    offset = output['offset'].detach()
+    depth = 1. / (output['depth'].detach().sigmoid() + 1e-6) - 1
+    quaternion = output['rotate'].detach()
 
     batch_size, _, height, width = heatmap.size()
-    heatmap = _nms(heatmap)
+    # heatmap = _nms(heatmap)
 
     # TODO: compare topk and filtering by threshold
     scores, inds, classes, ys, xs = _topk(heatmap, K=k)
@@ -249,7 +249,7 @@ def decode_eval(output, k=40):
         # points_in_image: [{}, {}, ...]
         points_in_image = [dict(zip(label_list, pred_point))
                            for pred_point in pred_points]
-        points_in_image = clear_duplicates(points_in_image)
+        # points_in_image = clear_duplicates(points_in_image)
         pred_list.append(points_in_image)
 
     return pred_list

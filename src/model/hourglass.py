@@ -5,14 +5,11 @@
 # Licensed under the BSD 3-Clause License
 # ------------------------------------------------------------------------------
 
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import numpy as np
 import torch
 import torch.nn as nn
+
+from .mobilev3 import MobileBottleneck
 
 
 class convolution(nn.Module):
@@ -81,6 +78,25 @@ class residual(nn.Module):
         return self.relu(bn2 + skip)
 
 
+class mobile_res(nn.Module):
+    def __init__(self, k, inp_dim, out_dim, stride=1, with_bn=True):
+        super(mobile_res, self).__init__()
+
+        self.bottleneck = MobileBottleneck(
+            inp=inp_dim,
+            oup=out_dim,
+            kernel=k,
+            stride=stride,
+            exp=2 * inp_dim,
+            se=True,
+            nl='HS'
+        )
+
+    def forward(self, x):
+        x = self.bottleneck(x)
+        return x
+
+
 def make_layer(k, inp_dim, out_dim, modules, layer=convolution, **kwargs):
     layers = [layer(k, inp_dim, out_dim, **kwargs)]
     for _ in range(1, modules):
@@ -120,6 +136,12 @@ def make_kp_layer(cnv_dim, curr_dim, out_dim):
     return nn.Sequential(
         convolution(3, cnv_dim, curr_dim, with_bn=False),
         nn.Conv2d(curr_dim, out_dim, (1, 1))
+    )
+
+
+def make_kp_layer2(cnv_dim, curr_dim, out_dim):
+    return nn.Sequential(
+        nn.Conv2d(cnv_dim, out_dim, (1, 1))
     )
 
 

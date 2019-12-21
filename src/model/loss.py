@@ -69,6 +69,27 @@ class L1Loss(nn.Module):
         return loss
 
 
+class PosL1Loss(nn.Module):
+    def __init__(self):
+        super(PosL1Loss, self).__init__()
+
+    def forward(self, output, target):
+        """
+        Parameters
+        ----------
+        output: size (b, 1, h, w)
+        target: size (b, h, w)
+        """
+        target = target.unsqueeze(1)
+        pos_ind = target.gt(0).float()
+        num_pos = pos_ind.sum()
+        loss = F.l1_loss(output * pos_ind, target * pos_ind, reduction='none')
+
+        loss = loss.sum() / num_pos
+
+        return loss
+
+
 class FocalLoss(nn.Module):
     '''nn.Module warpper for focal loss'''
 
@@ -84,6 +105,7 @@ class CarLoss(nn.Module):
     def __init__(self):
         super(CarLoss, self).__init__()
         self.crit_heatmap = FocalLoss()
+        self.crit_hm_reg = PosL1Loss()
         self.crit_reg = L1Loss()
         self.crit_rot = L1Loss()
 
@@ -92,12 +114,15 @@ class CarLoss(nn.Module):
         Parameters
         """
         loss_heatmap, loss_depth, loss_offset, loss_rotate = 0, 0, 0, 0
+        loss_heatmap_reg = 0
         num_stacks = len(outputs)
         for output in outputs:
             # heatmap loss
             heatmap = _sigmoid(output['heatmap'])
             loss_heatmap += \
                 self.crit_heatmap(heatmap, data['heatmap']) / num_stacks
+            loss_heatmap_reg += self.crit_hm_reg(heatmap,
+                                                 data['heatmap']) / num_stacks
 
             # depth loss
             # depth > 0
@@ -110,12 +135,14 @@ class CarLoss(nn.Module):
                 output['rotate'], data['rot_mask'].long(), data['index'].long(), data['rotate'])
 
         loss = config.HM_WEIGHT * loss_heatmap \
+            + config.HM_WEIGHT * loss_heatmap_reg \
             + config.OFFSET_WEIGHT * loss_offset \
             + config.DEPTH_WEIGHT * loss_depth \
             + config.ROTATE_WEIGHT * loss_rotate
         loss_stats = {
             'loss': loss,
             'loss_heatmap': loss_heatmap,
+            'loss_heatmap_reg': loss_heatmap_reg,
             'loss_offset': loss_offset,
             'loss_depth': loss_depth,
             'loss_rotate': loss_rotate,

@@ -1,5 +1,4 @@
 import numpy as np  # linear algebra
-import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 from math import acos, pi
 from scipy.spatial.transform import Rotation as R
 from sklearn.metrics import average_precision_score
@@ -23,39 +22,6 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-
-def expand_df(df, PredictionStringCols):
-    df = df.dropna().copy()
-    df['NumCars'] = [int((x.count(' ') + 1) / 7)
-                     for x in df['PredictionString']]
-
-    image_id_expanded = [item for item, count in zip(
-        df['ImageId'], df['NumCars']) for i in range(count)]
-    prediction_strings_expanded = df['PredictionString'].str.split(
-        ' ', expand=True).values.reshape(-1, 7).astype(float)
-    # get records which don't have at least one nan in the record
-    prediction_strings_expanded = prediction_strings_expanded[
-        ~np.isnan(prediction_strings_expanded).all(axis=1)]
-    df = pd.DataFrame(
-        {
-            'ImageId': image_id_expanded,
-            PredictionStringCols[0]: prediction_strings_expanded[:, 0],
-            PredictionStringCols[1]: prediction_strings_expanded[:, 1],
-            PredictionStringCols[2]: prediction_strings_expanded[:, 2],
-            PredictionStringCols[3]: prediction_strings_expanded[:, 3],
-            PredictionStringCols[4]: prediction_strings_expanded[:, 4],
-            PredictionStringCols[5]: prediction_strings_expanded[:, 5],
-            PredictionStringCols[6]: prediction_strings_expanded[:, 6]
-        })
-    return df
-
-
-def str2coords(s, names):
-    coords = []
-    for l in np.array(s.split()).reshape([-1, 7]):
-        coords.append(dict(zip(names, l.astype('float'))))
-    return coords
 
 
 def TranslationDistance(p, g, abs_dist=False):
