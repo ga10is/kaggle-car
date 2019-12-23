@@ -6,12 +6,13 @@ import torch
 import cv2
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-# from apex import amp
+from apex import amp
 
 from . import config
 from .common.util import str_stats
 from .data.dataset import CarDataset, car_collate_fn, get_train_transform
 from .model.model import decode_eval, _nms
+from .model.model_util import save_checkpoint
 from .model.metrics import car_map, AverageMeter
 from .model.loss import CarLoss, _sigmoid
 from .model.hourglass import get_large_hourglass_net
@@ -49,10 +50,24 @@ def train():
     model, criterion, optimizer, scheduler = init_model()
 
     start_epoch = 0
+    best_score = 0
     for epoch in range(start_epoch + 1, config.EPOCHS + 1):
         train_one_epoch(epoch, model, train_loader, criterion, optimizer)
 
-        valid_one_epoch(epoch, model, valid_loader, criterion)
+        valid_score = valid_one_epoch(epoch, model, valid_loader, criterion)
+
+        # check point
+        is_best = valid_score > best_score
+        if is_best:
+            best_score = valid_score
+        save_checkpoint({
+            'epoch': epoch,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict()
+        }, is_best, config.OUTDIR_PATH)
+
+        scheduler.step()
 
 
 def init_model():
@@ -60,8 +75,11 @@ def init_model():
     criterion = CarLoss()
     optimizer = torch.optim.Adam(
         [{'params': model.parameters()}], lr=config.ADAM_LR)
-    scheduler = None
-    # model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
+    # scheduler = None
+    mile_stones = [5]
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer, mile_stones, gamma=0.1, last_epoch=-1)
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1")
 
     return model, criterion, optimizer, scheduler
 
@@ -78,12 +96,11 @@ def train_one_epoch(epoch, model, loader, criterion, optimizer):
             logits = model(data['image'])
             loss, loss_stats = criterion(logits, data)
 
-            loss.backward()
-            # with amp.scale_loss(loss, optimizer) as scaled_loss:
-            # scaled_loss.backward()
-            if (i + 1) % config.ACC_ITER == 0:
-                optimizer.step()
-                optimizer.zero_grad()
+            optimizer.zero_grad()
+            # loss.backward()
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+            optimizer.step()
 
         for k in loss_stats:
             loss_meters[k].update(loss_stats[k].item(), batch_size)
@@ -117,7 +134,7 @@ def print_loss(idx, loss_meters):
 def print_decode(data, output):
     # gt = data['gt'][0]
     depth = data['depth'][0].detach().cpu().numpy()
-    decode_output = decode_eval(output, k=10)[0]
+    decode_output = decode_eval(output, k=2)[0]
 
     pprint.pprint(decode_output)
     print(str_stats(depth.reshape(-1)))
@@ -141,11 +158,11 @@ def show_heatmap(data, output):
     heatmap = heatmap[0, :, :]
 
     # min-max normalization
-    hm_max = heatmap.max()
-    hm_min = heatmap.min()
-    heatmap = (heatmap - hm_min) / (hm_max - hm_min)
-    heatmap = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+    # hm_max = heatmap.max()
+    # hm_min = heatmap.min()
+    # heatmap = (heatmap - hm_min) / (hm_max - hm_min)
+    # heatmap = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
+    # heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
 
     # depth
     depth = output['depth'][0].detach().cpu()

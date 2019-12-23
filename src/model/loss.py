@@ -24,7 +24,8 @@ def _transpose_and_gather_feat(feat, ind):
 
 
 def _sigmoid(x):
-    y = torch.clamp(x.sigmoid_(), min=1e-4, max=1-1e-4)
+    # y = torch.clamp(x.sigmoid_(), min=1e-4, max=1-1e-4)
+    y = torch.clamp(x.sigmoid(), min=1e-4, max=1 - 1e-4)
     return y
 
 
@@ -116,26 +117,27 @@ class CarLoss(nn.Module):
         loss_heatmap, loss_depth, loss_offset, loss_rotate = 0, 0, 0, 0
         loss_heatmap_reg = 0
         num_stacks = len(outputs)
-        for output in outputs:
+        for s in range(num_stacks):
+            output = outputs[s]
             # heatmap loss
             heatmap = _sigmoid(output['heatmap'])
+            depth = 1. / (output['depth'].sigmoid() + 1e-6) - 1
+
             loss_heatmap += \
                 self.crit_heatmap(heatmap, data['heatmap']) / num_stacks
             loss_heatmap_reg += self.crit_hm_reg(heatmap,
                                                  data['heatmap']) / num_stacks
 
             # depth loss
-            # depth > 0
-            depth = 1. / (output['depth'].sigmoid() + 1e-6) - 1
             loss_depth += self.crit_reg(
-                depth, data['reg_mask'].long(), data['index'].long(), data['depth'])
+                depth, data['reg_mask'].long(), data['index'].long(), data['depth']) / num_stacks
             loss_offset += self.crit_reg(
-                output['offset'], data['rot_mask'].long(), data['index'].long(), data['offset'])
+                output['offset'], data['rot_mask'].long(), data['index'].long(), data['offset']) / num_stacks
             loss_rotate += self.crit_rot(
-                output['rotate'], data['rot_mask'].long(), data['index'].long(), data['rotate'])
+                output['rotate'], data['rot_mask'].long(), data['index'].long(), data['rotate']) / num_stacks
 
         loss = config.HM_WEIGHT * loss_heatmap \
-            + config.HM_WEIGHT * loss_heatmap_reg \
+            + config.HM_REG_WEIGHT * loss_heatmap_reg \
             + config.OFFSET_WEIGHT * loss_offset \
             + config.DEPTH_WEIGHT * loss_depth \
             + config.ROTATE_WEIGHT * loss_rotate
