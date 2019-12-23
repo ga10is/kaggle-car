@@ -1,8 +1,10 @@
+import copy
 import numpy as np  # linear algebra
 from math import acos, pi
 from scipy.spatial.transform import Rotation as R
 from sklearn.metrics import average_precision_score
 from multiprocessing import Pool
+import multiprocessing
 
 
 class AverageMeter(object):
@@ -65,8 +67,8 @@ def check_match(idx, gt_dict_org, pred_dict_org):
     thre_tr_dist = thres_tr_list[idx]
     thre_ro_dist = thres_ro_list[idx]
     # copy() because gt_dict is called pop()
-    gt_dict = gt_dict_org.copy()
-    pred_dict = pred_dict_org.copy()
+    gt_dict = copy.deepcopy(gt_dict_org)
+    pred_dict = copy.deepcopy(pred_dict_org)
 
     result_flg = []  # 1 for TP, 0 for FP
     scores = []
@@ -119,7 +121,7 @@ def car_map(gt_dict, pred_dict):
             pred_dict[img_id], key=lambda x: -x['confidence'])
 
     arguments = [(i, gt_dict, pred_dict) for i in range(10)]
-    max_workers = 10
+    max_workers = multiprocessing.cpu_count()
     n_gt = sum([len(v) for v in gt_dict.values()])
     ap_list = []
     with Pool(processes=max_workers) as p:
