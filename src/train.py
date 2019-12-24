@@ -10,9 +10,9 @@ from apex import amp
 
 from . import config
 from .common.util import str_stats
-from .data.dataset import CarDataset, car_collate_fn, get_train_transform
+from .data.dataset import CarDataset, train_collate_fn, get_train_transform
 from .model.model import decode_eval, _nms
-from .model.model_util import save_checkpoint
+from .model.model_util import save_checkpoint, load_checkpoint
 from .model.metrics import car_map, AverageMeter
 from .model.loss import CarLoss, _sigmoid
 from .model.hourglass import get_large_hourglass_net
@@ -34,7 +34,7 @@ def train():
                               num_workers=config.NUM_WORKERS,
                               pin_memory=True,
                               drop_last=True,
-                              collate_fn=car_collate_fn,
+                              collate_fn=train_collate_fn,
                               )
     valid_dataset = CarDataset(
         df_val, config.TRAIN_IMAGE, 'valid', get_train_transform())
@@ -44,10 +44,13 @@ def train():
                               num_workers=config.NUM_WORKERS,
                               pin_memory=True,
                               drop_last=False,
-                              collate_fn=car_collate_fn
+                              collate_fn=train_collate_fn
                               )
 
     model, criterion, optimizer, scheduler = init_model()
+    if config.USE_PRETRAINED:
+        epoch, model, optimizer, scheduler, _ = load_checkpoint(
+            model, optimizer, scheduler, config.PRETRAIN_PATH)
 
     start_epoch = 0
     best_score = 0
@@ -106,7 +109,7 @@ def train_one_epoch(epoch, model, loader, criterion, optimizer):
             loss_meters[k].update(loss_stats[k].item(), batch_size)
 
         print_loss(i, loss_meters)
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 30 == 0:
             # last output of Hourglass is used
             show_heatmap(data, logits[-1])
             print_decode(data, logits[-1])

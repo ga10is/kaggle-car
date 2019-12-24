@@ -7,6 +7,7 @@ DEVICE = torch.device("cuda:0")
 # paths
 INPUT = '/root/user/car-disk'
 TRAIN_CSV = os.path.join(INPUT, 'train.csv')
+SUBMIT_CSV = os.path.join(INPUT, 'sample_submission.csv')
 TRAIN_IMAGE = os.path.join(INPUT, 'train_images')
 TRAIN_MASK = os.path.join(INPUT, 'train_masks')
 TEST_IMAGE = os.path.join(INPUT, 'test_images')

@@ -86,6 +86,18 @@ def get_train_transform():
     return train_trans
 
 
+def get_test_transform():
+    transforms = [
+        A.Resize(*config.INPUT_SIZE),
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ]
+    test_trans = A.Compose(transforms)
+    return test_trans
+
+
 class CarDataset(Dataset):
     def __init__(self, df, image_dir, mode, transform):
         self.df_org = df.copy()
@@ -97,7 +109,7 @@ class CarDataset(Dataset):
         if mode == 'train':
             # self.update()
             self.df_selected = self.df_org
-        elif mode in ['valid', 'predict']:
+        elif mode in ['valid', 'test']:
             self.df_selected = self.df_org
         else:
             raise ValueError('Unexpected mode: %s' % mode)
@@ -106,6 +118,14 @@ class CarDataset(Dataset):
         return self.df_selected.shape[0]
 
     def __getitem__(self, idx):
+        if self.mode in ['train', 'valid']:
+            ret = self._get_train_item(idx)
+        elif self.mode == 'test':
+            ret = self._get_test_item(idx)
+
+        return ret
+
+    def _get_train_item(self, idx):
         """
         Returns
         -------
@@ -205,6 +225,32 @@ class CarDataset(Dataset):
 
         return ret
 
+    def _get_test_item(self, idx):
+        """
+        Returns
+        -------
+        dict which contains the following key-values
+        - image: shape of 
+        - ImageId: list of str
+        """
+        # load image
+        image_path = self._get_image_name(self.df_selected, idx)
+        try:
+            image = self._load_image(image_path, keypoints=None)
+            # TODO: mask image
+        except Exception as e:
+            raise ValueError('Could not load image: %s' % image_path) from e
+
+        # change the shape of image (h, w, c) -> (c, h, w)
+        image = image.transpose(2, 0, 1)
+
+        ret = {
+            'image': image,
+            'ImageId': self._get_image_id(self.df_selected, idx)
+        }
+
+        return ret
+
     def _get_image_name(self, df, idx):
         """
         get image name
@@ -235,10 +281,15 @@ class CarDataset(Dataset):
         if image is None:
             raise ValueError('Not found image: %s' % image_path)
 
-        augmented = self.transform(image=image, keypoints=keypoints)
-        image = augmented['image']
-        keypoints = augmented['keypoints']
-        return image, keypoints
+        if self.mode in ['train', 'valid']:
+            augmented = self.transform(image=image, keypoints=keypoints)
+            image = augmented['image']
+            keypoints = augmented['keypoints']
+            return image, keypoints
+        elif self.mode == 'test':
+            augmented = self.transform(image=image)
+            image = augmented['image']
+            return image
 
     def _get_image_id(self, df, idx):
         rcd = df.iloc[idx]
@@ -261,7 +312,7 @@ class CarDataset(Dataset):
         plt.scatter(x=img_xs, y=img_ys, color='red', s=100)
 
 
-def car_collate_fn(datasets):
+def train_collate_fn(datasets):
     ret = {}
     for k in ['image', 'heatmap', 'offset', 'depth', 'rotate', 'index', 'rot_mask', 'reg_mask']:
         ret[k] = torch.stack([torch.from_numpy(dataset[k])
@@ -269,5 +320,16 @@ def car_collate_fn(datasets):
 
     ret['ImageId'] = [dataset['ImageId'] for dataset in datasets]
     ret['gt'] = [dataset['gt'] for dataset in datasets]
+
+    return ret
+
+
+def test_collate_fn(datasets):
+    ret = {}
+    for k in ['image']:
+        ret[k] = torch.stack([torch.from_numpy(dataset[k])
+                              for dataset in datasets], dim=0)
+
+    ret['ImageId'] = [dataset['ImageId'] for dataset in datasets]
 
     return ret
