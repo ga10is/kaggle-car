@@ -102,6 +102,37 @@ class FocalLoss(nn.Module):
         return self.neg_loss(out, target)
 
 
+class QuatLoss(nn.Module):
+    def __init__(self):
+        super(QuatLoss, self).__init__()
+
+    def forward(self, output, mask, ind, target):
+        pred = _transpose_and_gather_feat(output, ind)
+        mask = mask.unsqueeze(2).expand_as(pred).float()
+
+        print('pred', pred.size())
+
+        # Quaternion diff = Quaternion.Normalize(q1) *
+        #     Quaternion.Inverse(Quaternion.Normalize(q2));
+        # shape (batch, 50, 4)?
+        norm_pred = torch.norm(pred * mask, dim=2)
+        norm_target = torch.norm(target * mask, dim=2)
+        # inverse
+        norm_target[:, :, :3] *= -1
+        inv_target = norm_target
+        mat = norm_pred * inv_target
+        # w shape (batch, 50)
+        w = -mat[:, :, 0] - mat[:, :, 1] - mat[:, :, 2] + mat[:, :, 3]
+
+        # shape (batch,)
+        n_mask = mask.squeeze().sum(dim=1)
+        w = w.sum(dim=1) / n_mask
+
+        loss = w.mean()
+
+        return loss
+
+
 class CarLoss(nn.Module):
     def __init__(self):
         super(CarLoss, self).__init__()
