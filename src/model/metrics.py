@@ -82,10 +82,11 @@ def check_match(idx, gt_dict_org, pred_dict_org):
                 tr_dist = TranslationDistance(pcar, gcar)
                 if tr_dist < min_tr_dist:
                     min_tr_dist = tr_dist
+                    min_ro_dist = RotationDistance(pcar, gcar)
                     min_idx = idx
             # Calculate rotate distance of the nearest object
-            min_gcar = gt_dict[img_id][min_idx]
-            min_ro_dist = RotationDistance(pcar, min_gcar)
+            # min_gcar = gt_dict[img_id][min_idx]
+            # min_ro_dist = RotationDistance(pcar, min_gcar)
 
             # set the result
             if min_tr_dist < thre_tr_dist and min_ro_dist < thre_ro_dist:
