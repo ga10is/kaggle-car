@@ -174,7 +174,7 @@ def _topk(scores, K=40):
     return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
 
 
-def decode_eval(output, k=40):
+def decode_eval(output, k, on_nms):
     """
     Parameters
     ----------
@@ -197,13 +197,14 @@ def decode_eval(output, k=40):
         z:
         confidence:
     """
-    heatmap = output['heatmap'].detach()
+    heatmap = _sigmoid(output['heatmap'].detach())
     offset = output['offset'].detach()
     depth = 1. / (output['depth'].detach().sigmoid() + 1e-6) - 1
     quaternion = output['rotate'].detach()
 
     batch_size, _, height, width = heatmap.size()
-    # heatmap = _nms(heatmap)
+    if on_nms:
+        heatmap = _nms(heatmap)
 
     # TODO: compare topk and filtering by threshold
     scores, inds, classes, ys, xs = _topk(heatmap, K=k)
@@ -222,8 +223,7 @@ def decode_eval(output, k=40):
     ys_world = (ys - CAMERA[1, 2]) * zs_world / CAMERA[1, 1]
 
     # calculate confidence, shape(batch_size, k) -> (batch_size, k, 1)
-    print('scores shape: %s' % (scores.size(),))
-    confs = _sigmoid(scores).view(batch_size, k, 1)
+    confs = scores.view(batch_size, k, 1)
 
     # translate torch.Tensor to numpy.ndarray
     xyz_conf = torch.cat([xs_world, ys_world, zs_world, confs], dim=2)\

@@ -46,14 +46,11 @@ def train():
                               drop_last=False,
                               collate_fn=train_collate_fn
                               )
-
-    model, criterion, optimizer, scheduler = init_model()
-    if config.USE_PRETRAINED:
-        epoch, model, optimizer, scheduler, _ = load_checkpoint(
-            model, optimizer, scheduler, config.PRETRAIN_PATH)
-
     start_epoch = 0
     best_score = 0
+
+    model, criterion, optimizer, scheduler = initialize()
+
     for epoch in range(start_epoch + 1, config.EPOCHS + 1):
         train_one_epoch(epoch, model, train_loader, criterion, optimizer)
 
@@ -73,6 +70,19 @@ def train():
         scheduler.step()
 
 
+def initialize():
+    model, criterion, optimizer, scheduler = init_model()
+    if config.USE_PRETRAINED:
+        start_epoch, model, optimizer, scheduler, _ = load_checkpoint(
+            model, optimizer, scheduler, config.PRETRAIN_PATH)
+        print('loaded: %s(epoch: %d)' % (config.PRETRAIN_PATH, start_epoch))
+
+        if config.RESET_OPT:
+            start_epoch, optimizer, scheduler = reset_opt(model)
+
+    return model, criterion, optimizer, scheduler
+
+
 def init_model():
     model = get_large_hourglass_net().to(config.DEVICE)
     criterion = CarLoss()
@@ -87,9 +97,27 @@ def init_model():
     return model, criterion, optimizer, scheduler
 
 
+def reset_opt(model):
+    print('reset optimizer')
+    start_epoch = 0
+    optimizer = torch.optim.Adam(
+        [{'params': model.parameters()}], lr=config.ADAM_LR)
+    mile_stones = [1, 5]
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer, mile_stones, gamma=0.1, last_epoch=-1)
+
+    model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
+
+    return start_epoch, optimizer, scheduler
+
+
 def train_one_epoch(epoch, model, loader, criterion, optimizer):
     loss_meters = {k: AverageMeter()
                    for k in ['loss', 'loss_heatmap', 'loss_heatmap_reg', 'loss_offset', 'loss_depth', 'loss_rotate']}
+    lr = optimizer.state_dict()['param_groups'][0]['lr']
+
+    print('[Start] epoch: %d' % epoch)
+    print('lr: %f' % lr)
 
     model.train()
     for i, data in enumerate(tqdm(loader)):
@@ -108,8 +136,8 @@ def train_one_epoch(epoch, model, loader, criterion, optimizer):
         for k in loss_stats:
             loss_meters[k].update(loss_stats[k].item(), batch_size)
 
-        print_loss(i, loss_meters)
-        if (i + 1) % 30 == 0:
+        if (i + 1) % config.PRINT_FREQ == 0:
+            print_loss(i, loss_meters)
             # last output of Hourglass is used
             show_heatmap(data, logits[-1])
             print_decode(data, logits[-1])
@@ -119,25 +147,22 @@ def to_gpu(data):
     for k in ['image', 'heatmap', 'offset', 'depth', 'rotate', 'index', 'rot_mask', 'reg_mask']:
         data[k] = data[k].to(config.DEVICE)
 
-# def update_meter()
-
 
 def print_loss(idx, loss_meters):
-    if (idx + 1) % config.PRINT_FREQ == 0:
-        print('loss %f heatmap %f heatmap(l1) %f offset %f depth %f rotate %f'
-              % (loss_meters['loss'].avg,
-                 loss_meters['loss_heatmap'].avg,
-                 loss_meters['loss_heatmap_reg'].avg,
-                 loss_meters['loss_offset'].avg,
-                 loss_meters['loss_depth'].avg,
-                 loss_meters['loss_rotate'].avg)
-              )
+    print('loss %f heatmap %f heatmap(l1) %f offset %f depth %f rotate %f'
+          % (loss_meters['loss'].avg,
+             loss_meters['loss_heatmap'].avg,
+             loss_meters['loss_heatmap_reg'].avg,
+             loss_meters['loss_offset'].avg,
+             loss_meters['loss_depth'].avg,
+             loss_meters['loss_rotate'].avg)
+          )
 
 
 def print_decode(data, output):
     # gt = data['gt'][0]
     depth = data['depth'][0].detach().cpu().numpy()
-    decode_output = decode_eval(output, k=2)[0]
+    decode_output = decode_eval(output, k=2, on_nms=True)[0]
 
     pprint.pprint(decode_output)
     print(str_stats(depth.reshape(-1)))
@@ -187,26 +212,38 @@ def valid_one_epoch(epoch, model, loader, criterion):
     loss_meter = AverageMeter()
 
     pred_dict = {}
+    nms_pred_dict = {}
     gt_dict = {}
 
     # validate phase
     model.eval()
     for i, data in enumerate(tqdm(loader)):
         to_gpu(data)
-        batch_size = data['image'].size(0)
         with torch.no_grad():
             logits = model(data['image'])
             # loss = criterion(logit, data)
             # loss_meter.update(loss.item(), batch_size)
 
         # last output of Hourglass is used
-        pred_batch_list = decode_eval(logits[-1], k=config.MAX_OBJ)
+        pred_batch_list = decode_eval(
+            logits[-1], k=config.MAX_OBJ, on_nms=False)
+        nms_pred_batch_list = decode_eval(
+            logits[-1], k=config.MAX_OBJ, on_nms=True)
+
         img_ids = data['ImageId']
         pred_batch_dict = dict(zip(img_ids, pred_batch_list))
         pred_dict.update(pred_batch_dict)
+
+        nms_pred_batch_dict = dict(zip(img_ids, nms_pred_batch_list))
+        nms_pred_dict.update(nms_pred_batch_dict)
+
         gt_batch_dict = dict(zip(img_ids, data['gt']))
         gt_dict.update(gt_batch_dict)
-    map_val = car_map(gt_dict, pred_dict)
 
+    map_val = car_map(gt_dict, pred_dict)
     print('mAP: %f' % (map_val, ))
+
+    nms_map_val = car_map(gt_dict, nms_pred_dict)
+    print('mAP(nms): %f' % (nms_map_val, ))
+
     return map_val

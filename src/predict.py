@@ -41,7 +41,8 @@ def predict_one_epoch(model, loader):
         with torch.no_grad():
             outputs = model(img)
 
-            pred_batch_list = decode_eval(outputs[-1], k=config.MAX_OBJ)
+            pred_batch_list = decode_eval(
+                outputs[-1], k=config.MAX_OBJ, on_nms=True)
             img_ids = data['ImageId']
             pred_batch_dict = dict(zip(img_ids, pred_batch_list))
             pred_dict.update(pred_batch_dict)
